@@ -1,0 +1,48 @@
+;
+; Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+;
+; SPDX-License-Identifier: BSD-3-Clause
+;
+
+; These programs implement full-duplex SPI, with a SCK period of 4 clock
+; cycles. A different program is provided for each value of CPHA, and CPOL is
+; achieved using the hardware GPIO inversion available in the IO controls.
+;
+; Transmit-only SPI can go twice as fast -- see the ST7789 example!
+
+
+.program tms
+.side_set 1 opt
+countloop:
+    wait 1 irq 0
+    out pins, 1    ; Stall here on empty (sideset proceeds even if
+    jmp y-- countloop
+loop1:
+    jmp !x countloop
+loopblock:
+    out NULL,1
+    jmp !OSRE loopblock
+
+
+% c-sdk {
+#include "hardware/gpio.h"
+static inline void pio_tms_init(PIO pio, uint sm, uint prog_offs, float clkdiv, uint pin_tms,uint pin_tck) {
+    pio_sm_config c = tms_program_get_default_config(prog_offs);
+    sm_config_set_out_pins(&c, pin_tms, 1);
+    //sm_config_set_in_pins(&c, pin_tck);
+    // Only support MSB-first in this example code (shift to left, auto push/pull, threshold=nbits)
+    sm_config_set_out_shift(&c, false, true, 32);
+    sm_config_set_clkdiv(&c, clkdiv);
+
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+
+    // MOSI, SCK output are low, MISO is input
+    pio_sm_set_pins_with_mask(pio, sm, 0, (1u << pin_tms));
+    pio_sm_set_pindirs_with_mask(pio, sm, (1u << pin_tms),(1u << pin_tms));
+    pio_gpio_init(pio, pin_tms); // output
+    //pio_gpio_init(pio, pin_tck); // input
+
+    pio_sm_init(pio, sm, prog_offs, &c);
+    //pio_sm_set_enabled(pio, sm, true);
+}
+%}
